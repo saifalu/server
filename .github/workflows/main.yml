@@ -1,0 +1,42 @@
+name: Deploy Node.js server.js to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Zip the project
+      run: |
+        zip -r app.zip . -x '*.git*'
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Send and deploy to EC2 via SSM
+      run: |
+        aws ssm send-command \
+          --document-name "AWS-RunShellScript" \
+          --targets "Key=instanceIds,Values=${{ secrets.EC2_INSTANCE_ID }}" \
+          --comment "Deploy Node.js app" \
+          --parameters 'commands=[
+            "mkdir -p ~/ci_cd_temp",
+            "rm -rf ~/ci_cd_temp/*",
+            "echo \"$(base64 < app.zip)\" > ~/ci_cd_temp/app.b64",
+            "base64 -d ~/ci_cd_temp/app.b64 > ~/ci_cd_temp/app.zip",
+            "unzip -o ~/ci_cd_temp/app.zip -d ~/app",
+            "cd ~/app && chmod +x deploy.sh && ./deploy.sh"
+          ]' \
+          --output text \
+          --query "Command.CommandId"
